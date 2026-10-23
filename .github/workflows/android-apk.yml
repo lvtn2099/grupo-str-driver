@@ -3,30 +3,45 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Configure Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK 35
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Install Gradle
+      - name: Configure Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build debug APK
-        run: gradle :android:app:assembleDebug --stacktrace --no-daemon
-      - name: Upload debug APK
-        if: success()
+      - name: Build and capture full diagnostic log
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :android:app:assembleDebug --stacktrace --info --no-daemon 2>&1 | tee android-build.log
+      - name: Upload build log even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grupo-str-build-diagnostics
+          path: android-build.log
+          if-no-files-found: warn
+      - name: Verify APK
+        run: test -s android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
           name: GrupoSTRDriver-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
