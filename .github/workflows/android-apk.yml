@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build:
@@ -30,6 +31,28 @@ jobs:
         run: |
           set -o pipefail
           gradle :android:app:assembleDebug --stacktrace --info --no-daemon 2>&1 | tee android-build.log
+      - name: Publish compilation error to repository issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ -f android-build.log ]; then
+            tail -n 160 android-build.log > error-tail.txt
+          else
+            echo "Build failed before Gradle produced its diagnostic log." > error-tail.txt
+          fi
+          {
+            echo 'Automated Android build failure diagnostic.'
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '~~~'
+            cat error-tail.txt
+            echo '~~~'
+          } > issue-body.md
+          gh issue create --title "Android build failure ${GITHUB_SHA:0:7}" --body-file issue-body.md
       - name: Upload build log even on failure
         if: always()
         uses: actions/upload-artifact@v4
