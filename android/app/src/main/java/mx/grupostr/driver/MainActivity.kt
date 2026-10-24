@@ -24,6 +24,7 @@ import android.widget.TextView
 class MainActivity : Activity() {
     private var pendingSession: GpsSession? = null
     private var currentSession: GpsSession? = null
+    private var handoffError: String? = null
     private lateinit var status: TextView
     private lateinit var instructions: TextView
     private lateinit var diagnostics: TextView
@@ -72,7 +73,10 @@ class MainActivity : Activity() {
             text = "REINTENTAR CONEXIÓN GPS"
             setOnClickListener {
                 val session = currentSession ?: GpsSession.load(this@MainActivity)
-                if (session != null) activate(session)
+                if (session != null) {
+                    handoffError = null
+                    activate(session)
+                }
                 else showStatus("ENLACE GPS NECESARIO",
                     "Regresa a Grupo STR y pulsa «Preparar conexión GPS».", false)
             }
@@ -131,6 +135,7 @@ class MainActivity : Activity() {
             return
         }
         if (uri.host == "stop") {
+            handoffError = "GPS DETENIDO"
             val routeId = uri.getQueryParameter("route_id")
             val session = GpsSession.load(this)
             if (session != null && session.routeId == routeId) {
@@ -145,11 +150,13 @@ class MainActivity : Activity() {
         val session = GpsSession.fromUri(uri)
         if (session == null) {
             currentSession = null
-            showStatus("ERROR EN ENLACE GPS", GpsSession.explainUriProblem(uri), false)
+            handoffError = GpsSession.explainUriProblem(uri)
+            showStatus("ERROR EN ENLACE GPS", handoffError!!, false)
             diagnostics.text = "No se inició el seguimiento. Vuelve a Grupo STR y prepara un enlace nuevo."
             retryButton.visibility = View.GONE
             return
         }
+        handoffError = null
         currentSession = session
         retryButton.visibility = View.VISIBLE
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -183,6 +190,15 @@ class MainActivity : Activity() {
     }
 
     private fun refreshStatus() {
+        if (handoffError != null) {
+            if (handoffError == "GPS DETENIDO") {
+                showStatus("GPS DETENIDO", "El recorrido terminó; vuelve a Grupo STR.", false)
+            } else {
+                showStatus("ERROR EN ENLACE GPS", handoffError!!, false)
+            }
+            diagnostics.text = GpsHealth.describe(this)
+            return
+        }
         val session = currentSession ?: GpsSession.load(this)
         if (session == null) {
             if (!::status.isInitialized) return
@@ -195,6 +211,12 @@ class MainActivity : Activity() {
             return
         }
         val health = GpsHealth.snapshot(this, session.routeId)
+        if (health.attemptAt <= 0) {
+            showStatus("GPS PENDIENTE DE VINCULAR",
+                "Regresa a Grupo STR y toca «Preparar conexión GPS» para esta ruta.", false)
+            diagnostics.text = GpsHealth.describe(this)
+            return
+        }
         val now = System.currentTimeMillis()
         val sinceAttempt = now - health.attemptAt
         val connected = health.lastServerSuccess >= health.attemptAt &&
