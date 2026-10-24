@@ -29,6 +29,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Preserve debug signing certificate between test builds
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: str-driver-debug-signing-v1
       - name: Build and capture full diagnostic log
         shell: bash
         run: |
