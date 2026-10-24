@@ -56,7 +56,10 @@ class TrackingService : Service() {
         }
 
         // Base44 can renew the token without stopping native location collection.
-        if (activeRoute == session.routeId && callback != null) return START_STICKY
+        if (activeRoute == session.routeId && callback != null) {
+            GpsHealth.onServiceStarted(this, session.routeId)
+            return START_STICKY
+        }
         tearDownTracking()
         activeRoute = session.routeId
         lastLocationTime = 0L
@@ -67,6 +70,7 @@ class TrackingService : Service() {
         )
         try {
             startForeground(101, makeNotification("Buscando señal GPS…"))
+            GpsHealth.onServiceStarted(this, session.routeId)
         } catch (error: RuntimeException) {
             Log.e(TAG, "Android refused to start foreground GPS service", error)
             GpsHealth.onFailure(this, "Android bloqueó el GPS en segundo plano: ${error.javaClass.simpleName}")
@@ -189,6 +193,7 @@ class TrackingService : Service() {
     override fun onDestroy() {
         val previousRoute = activeRoute
         tearDownTracking()
+        if (previousRoute.isNotEmpty()) GpsHealth.onServiceStopped(this, previousRoute)
         // A completed route may still have buffered points. They remain available
         // for deferred upload via WorkManager; no records are deleted on stop.
         if (previousRoute.isNotEmpty()) {

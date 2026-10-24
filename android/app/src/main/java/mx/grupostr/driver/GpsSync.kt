@@ -86,17 +86,17 @@ object GpsSync {
                 val response = post(session.endpoint, body)
                 when (response.first) {
                     401, 403 -> {
-                        GpsHealth.onFailure(context, "Sesión GPS caducada: abre la ruta en Base44")
+                        GpsHealth.onFailure(context, "Sesión rechazada (HTTP ${response.first}). En Grupo STR, pulsa «Preparar conexión GPS» para obtener un enlace nuevo.")
                         Log.w(TAG, "GPS route session rejected; reopen route from Base44")
                         return GpsSyncResult(true, false, false)
                     }
                     409 -> {
-                        GpsHealth.onFailure(context, "Ruta cerrada o no autorizada para sincronizar")
+                        GpsHealth.onFailure(context, "Ruta cerrada o no autorizada (HTTP 409). Selecciona la ruta correcta en Grupo STR.")
                         return GpsSyncResult(true, false, true)
                     }
                 }
                 if (response.first !in 200..299) {
-                    GpsHealth.onFailure(context, "HTTP ${response.first} al comunicarse con Base44")
+                    GpsHealth.onFailure(context, "Servidor GPS: HTTP ${response.first}. Revisa la conexión y el enlace.")
                     return GpsSyncResult(false, tracking, true)
                 }
 
