@@ -2,9 +2,12 @@ package mx.grupostr.driver
 
 import android.content.Context
 import android.util.Log
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -21,26 +24,52 @@ data class GpsSyncResult(val reachable: Boolean, val tracking: Boolean, val sess
 object GpsSync {
     private const val TAG = "STR-GPS-SYNC"
     private const val PERIODIC_WORK = "str-gps-offline-sync"
+    private const val CONNECTED_WORK = "str-gps-network-retry"
+
+    private fun onlineConstraint(): Constraints =
+        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     fun scheduleOfflineRetries(context: Context) {
-        val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
         val request = PeriodicWorkRequestBuilder<GpsSyncWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(constraints).build()
+            .setConstraints(onlineConstraint()).build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PERIODIC_WORK, ExistingPeriodicWorkPolicy.KEEP, request
         )
     }
 
-    // Never called from the Android main thread.
-    fun flush(context: Context, session: GpsSession): GpsSyncResult {
+    // When Android loses connectivity, WorkManager waits for usable network.
+    // Unlike the periodic job, this can run as soon as connectivity returns.
+    fun enqueueConnectivityRetry(context: Context) {
+        val request = OneTimeWorkRequestBuilder<GpsSyncWorker>()
+            .setConstraints(onlineConstraint())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            CONNECTED_WORK, ExistingWorkPolicy.KEEP, request
+        )
+    }
+
+    // Only the live Android foreground location service sets foreground=true.
+    // WorkManager can resend old points, but must not mark GPS as currently active.
+    fun flush(context: Context, session: GpsSession, foreground: Boolean = false): GpsSyncResult {
         val store = GpsStore(context)
         try {
             var tracking = true
-            repeat(4) {
+            repeat(10) {
                 val batch = store.pending(session.routeId)
-                val body = JSONObject().put("action", if (batch.isEmpty()) "status" else "sync")
+                val body = JSONObject()
+                    .put("action", if (batch.isEmpty()) "status" else "sync")
                     .put("route_id", session.routeId)
                     .put("token", session.token)
+
+                if (foreground) {
+                    body.put("foreground", true)
+                    val latestFix = store.latest(session.routeId)
+                    if (latestFix != null) {
+                        body.put("last_fix_at", Instant.ofEpochMilli(latestFix.recordedAt).toString())
+                        body.put("last_accuracy_m", latestFix.accuracyMeters)
+                    }
+                }
                 if (batch.isNotEmpty()) {
                     val points = JSONArray()
                     batch.forEach { point ->
@@ -53,34 +82,60 @@ object GpsSync {
                     }
                     body.put("points", points)
                 }
+
                 val response = post(session.endpoint, body)
-                if (response.first == 401 || response.first == 403) {
-                    Log.w(TAG, "GPS session rejected; reopen route from Base44")
-                    return GpsSyncResult(true, false, false)
+                when (response.first) {
+                    401, 403 -> {
+                        GpsHealth.onFailure(context, "Sesión GPS caducada: abre la ruta en Base44")
+                        Log.w(TAG, "GPS route session rejected; reopen route from Base44")
+                        return GpsSyncResult(true, false, false)
+                    }
+                    409 -> {
+                        GpsHealth.onFailure(context, "Ruta cerrada o no autorizada para sincronizar")
+                        return GpsSyncResult(true, false, true)
+                    }
                 }
-                if (response.first == 409) return GpsSyncResult(true, false, true)
-                if (response.first !in 200..299) return GpsSyncResult(false, tracking, true)
+                if (response.first !in 200..299) {
+                    GpsHealth.onFailure(context, "HTTP ${response.first} al comunicarse con Base44")
+                    return GpsSyncResult(false, tracking, true)
+                }
 
                 val payload = JSONObject(response.second)
                 tracking = payload.optBoolean("tracking", false)
+                GpsHealth.onServerSuccess(context)
+
                 if (batch.isNotEmpty()) {
-                    val acceptedIds = mutableListOf<String>()
-                    for (key in arrayOf("accepted", "rejected")) {
-                        val ack = payload.optJSONArray(key) ?: continue
-                        for (i in 0 until ack.length()) {
-                            val id = ack.optString(i)
-                            if (id.isNotBlank()) acceptedIds.add(id)
+                    val accepted = mutableListOf<String>()
+                    val rejected = mutableListOf<String>()
+                    payload.optJSONArray("accepted")?.let { ids ->
+                        for (i in 0 until ids.length()) {
+                            ids.optString(i).takeIf(String::isNotBlank)?.let(accepted::add)
                         }
                     }
-                    // Only mark IDs the server explicitly acknowledged.
-                    store.acknowledge(acceptedIds)
-                    if (acceptedIds.isEmpty()) return GpsSyncResult(false, tracking, true)
+                    payload.optJSONArray("rejected")?.let { ids ->
+                        for (i in 0 until ids.length()) {
+                            ids.optString(i).takeIf(String::isNotBlank)?.let(rejected::add)
+                        }
+                    }
+                    val batchIds = batch.map { it.id }.toSet()
+                    // Only the exact IDs returned by Base44 may leave the retry queue.
+                    store.acknowledge(accepted.filter(batchIds::contains))
+                    // Rejected fixes remain in SQLite for diagnostics, not falsely "synced".
+                    store.reject(rejected.filter(batchIds::contains))
+                    if (rejected.isNotEmpty()) {
+                        GpsHealth.onFailure(context, "${rejected.size} puntos GPS rechazados")
+                    }
+                    if (accepted.isEmpty() && rejected.isEmpty()) {
+                        GpsHealth.onFailure(context, "Base44 no confirmó ningún punto GPS")
+                        return GpsSyncResult(false, tracking, true)
+                    }
                 }
                 if (batch.isEmpty() || batch.size < 50) return GpsSyncResult(true, tracking, true)
             }
             return GpsSyncResult(true, tracking, true)
         } catch (error: Exception) {
-            Log.w(TAG, "Offline or unable to sync; points remain in SQLite", error)
+            GpsHealth.onFailure(context, "No se pudo sincronizar: ${error.javaClass.simpleName}")
+            Log.w(TAG, "GPS points remain locally queued; retry on network restoration", error)
             return GpsSyncResult(false, true, true)
         } finally {
             store.close()
@@ -88,21 +143,22 @@ object GpsSync {
     }
 
     private fun post(endpoint: String, body: JSONObject): Pair<Int, String> {
-        val conn = URL(endpoint).openConnection() as HttpURLConnection
+        val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 15000
-            conn.readTimeout = 20000
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.setRequestProperty("Cache-Control", "no-store")
-            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val status = conn.responseCode
-            val stream = if (status in 200..299) conn.inputStream else conn.errorStream
-            return Pair(status, stream?.bufferedReader()?.use { it.readText() } ?: "")
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 15000
+            connection.readTimeout = 20000
+            connection.instanceFollowRedirects = false
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("Cache-Control", "no-store")
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val status = connection.responseCode
+            val responseStream = if (status in 200..299) connection.inputStream else connection.errorStream
+            return Pair(status, responseStream?.bufferedReader()?.use { it.readText() } ?: "")
         } finally {
-            conn.disconnect()
+            connection.disconnect()
         }
     }
 }
@@ -110,9 +166,11 @@ object GpsSync {
 class GpsSyncWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
         val session = GpsSession.load(applicationContext) ?: return Result.success()
-        val result = GpsSync.flush(applicationContext, session)
-        return if (!result.sessionValid) Result.failure()
-               else if (!result.reachable) Result.retry()
-               else Result.success()
+        val result = GpsSync.flush(applicationContext, session, foreground = false)
+        return when {
+            !result.sessionValid -> Result.failure()
+            !result.reachable -> Result.retry()
+            else -> Result.success()
+        }
     }
 }
