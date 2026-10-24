@@ -107,7 +107,19 @@ class TrackingService : Service() {
 
         syncExecutor = Executors.newSingleThreadScheduledExecutor().apply {
             scheduleWithFixedDelay({
-                val result = GpsSync.flush(applicationContext, session)
+                // A driver may reopen the same Base44 route. That action replaces
+                // the route's server-side token, so never retain the old token
+                // in a long-lived foreground service worker.
+                val activeSession = GpsSession.load(applicationContext)
+                if (activeSession == null || activeSession.routeId != activeRoute) {
+                    stopSelf()
+                    return@scheduleWithFixedDelay
+                }
+                val result = GpsSync.flush(applicationContext, activeSession)
+                val current = GpsSession.load(applicationContext)
+                // A replacement token issued while the request was in flight
+                // must not stop the service on the old request's 401 response.
+                if (current?.token != activeSession.token) return@scheduleWithFixedDelay
                 if (result.reachable && (!result.tracking || !result.sessionValid)) {
                     stopSelf()
                 }
