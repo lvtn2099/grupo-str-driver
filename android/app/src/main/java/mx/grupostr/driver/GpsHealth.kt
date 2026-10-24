@@ -94,20 +94,20 @@ object GpsHealth {
         val stored = try {
             if (session != null) {
                 GpsStore(context).use { store ->
-                    "Puntos pendientes: \${store.pendingCount(session.routeId)} · Rechazados: \${store.rejectedCount(session.routeId)}"
+                    "Puntos pendientes: ${store.pendingCount(session.routeId)} · Rechazados: ${store.rejectedCount(session.routeId)}"
                 }
             } else "Sin ruta enlazada"
         } catch (_: Exception) { "No se pudieron leer los puntos pendientes" }
         return buildString {
-            appendLine("Estado: \${if (state?.serviceRunning == true) "GPS Android iniciado" else "GPS Android no confirmado"}")
+            appendLine("Estado: ${if (state?.serviceRunning == true) "GPS Android iniciado" else "GPS Android no confirmado"}")
             appendLine(stored)
-            appendLine("Último GPS: \${format(state?.lastGpsFix ?: 0L)}")
+            appendLine("Último GPS: ${format(state?.lastGpsFix ?: 0L)}")
             if (state != null && state.lastGpsFix > 0) {
-                appendLine("Precisión: \${p.getFloat("last_accuracy_m", 0f).toInt()} m")
+                appendLine("Precisión: ${p.getFloat("last_accuracy_m", 0f).toInt()} m")
             }
-            appendLine("Servidor confirmó: \${format(state?.lastServerSuccess ?: 0L)}")
+            appendLine("Servidor confirmó: ${format(state?.lastServerSuccess ?: 0L)}")
             if (state?.lastError != null) {
-                appendLine("Error (\${format(state.lastErrorAt)}): \${state.lastError}")
+                appendLine("Error (${format(state.lastErrorAt)}): ${state.lastError}")
             }
         }
     }

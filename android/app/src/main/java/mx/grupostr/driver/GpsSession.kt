@@ -64,7 +64,7 @@ data class GpsSession(
             val allowed = hostname == "cdguzman.grupostr.com.mx" ||
                 hostname == "app.base44.com" || hostname == "base44.app" ||
                 hostname.endsWith(".base44.app") || hostname.endsWith(".base44.com")
-            if (!allowed) return "Servidor GPS no autorizado: \${hostname.take(80)}."
+            if (!allowed) return "Servidor GPS no autorizado: ${hostname.take(80)}."
             if (!url.path.endsWith("/functions/gpsRouteBridge") &&
                 !url.path.endsWith("/gpsRouteBridge")) {
                 return "La ruta del servidor GPS es incorrecta. Actualiza el enlace desde Grupo STR."

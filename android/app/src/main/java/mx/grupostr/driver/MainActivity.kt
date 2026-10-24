@@ -90,7 +90,7 @@ class MainActivity : Activity() {
             text = "AJUSTES ANDROID: GPS Y BATERÍA"
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:\${packageName}")))
+                    Uri.parse("package:${packageName}")))
             }
         })
         val scroll = ScrollView(this).apply { addView(content) }
@@ -175,7 +175,7 @@ class MainActivity : Activity() {
                 .setAction(TrackingService.ACTION_START))
         } catch (error: Exception) {
             GpsHealth.onFailure(this,
-                "Android no pudo iniciar el servicio GPS: \${error.javaClass.simpleName}")
+                "Android no pudo iniciar el servicio GPS: ${error.javaClass.simpleName}")
             showStatus("ERROR AL INICIAR GPS",
                 "Android rechazó el servicio de ubicación. Revisa permisos y batería.", false)
         }
