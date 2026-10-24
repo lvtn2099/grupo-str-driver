@@ -3,6 +3,8 @@ package mx.grupostr.driver
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -35,16 +37,16 @@ class MainActivity : Activity() {
         }
         root.addView(message)
         root.addView(Button(this).apply {
-            text = "Ver puntos pendientes de sincronización"
+            text = "Revisar GPS, conexión y puntos pendientes"
             setOnClickListener {
-                GpsStore(this@MainActivity).use { store ->
-                    val active = GpsSession.load(this@MainActivity)
-                    message.text = if (active == null) {
-                        "Abre una ruta desde Grupo STR para iniciar el GPS."
-                    } else {
-                        "Ruta activa: ${active.routeId}\nPuntos pendientes: ${store.pendingCount(active.routeId)}"
-                    }
-                }
+                message.text = GpsHealth.describe(this@MainActivity)
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Ajustes Android: GPS y batería"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${packageName}")))
             }
         })
         setContentView(root)
@@ -90,7 +92,8 @@ class MainActivity : Activity() {
             startForegroundService(
                 Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_START)
             )
-            message.text = "Seguimiento GPS activado."
+            message.text = "Seguimiento GPS activado. El servicio seguirá grabando al bloquear la pantalla.\n" +
+                GpsHealth.describe(this)
             // Return to the existing Base44 driver interface; the APK is a companion.
             if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
