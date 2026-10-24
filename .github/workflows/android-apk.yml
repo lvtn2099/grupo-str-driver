@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -76,3 +76,20 @@ jobs:
           name: GrupoSTRDriver-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Publish persistent direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp android/app/build/outputs/apk/debug/app-debug.apk GrupoSTR-GPS-Nativo-v0.3.0.apk
+          gh release view gps-v0.3.0 >/dev/null 2>&1 && {
+            gh release upload gps-v0.3.0 GrupoSTR-GPS-Nativo-v0.3.0.apk --clobber
+          } || {
+            gh release create gps-v0.3.0 GrupoSTR-GPS-Nativo-v0.3.0.apk \
+              --target "$GITHUB_SHA" \
+              --title "Grupo STR GPS Nativo v0.3.0 — Android test APK" \
+              --notes "Android GPS companion for Grupo STR Base44. Debug-signed test build, not a production release. On existing installations, preserve pending GPS data before uninstalling." \
+              --prerelease
+          }
+          echo "APK direct download: https://github.com/${GITHUB_REPOSITORY}/releases/download/gps-v0.3.0/GrupoSTR-GPS-Nativo-v0.3.0.apk" >> "$GITHUB_STEP_SUMMARY"
