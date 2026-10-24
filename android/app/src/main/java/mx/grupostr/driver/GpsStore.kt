@@ -53,6 +53,36 @@ class GpsStore(context: Context) : SQLiteOpenHelper(context, "str_gps.db", null,
         return out
     }
 
+    fun latest(routeId: String): GpsPoint? {
+        readableDatabase.query(
+            "gps_points",
+            arrayOf("id", "route_id", "lat", "lon", "accuracy", "recorded_at"),
+            "route_id = ?", arrayOf(routeId),
+            null, null, "recorded_at DESC", "1"
+        ).use { cursor ->
+            if (cursor.moveToFirst()) {
+                return GpsPoint(cursor.getString(0), cursor.getString(1), cursor.getDouble(2),
+                    cursor.getDouble(3), cursor.getDouble(4), cursor.getLong(5))
+            }
+        }
+        return null
+    }
+
+    fun reject(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val statement = db.compileStatement("UPDATE gps_points SET synced = -1 WHERE id = ?")
+            ids.forEach {
+                statement.clearBindings()
+                statement.bindString(1, it)
+                statement.executeUpdateDelete()
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
     fun acknowledge(ids: List<String>) {
         if (ids.isEmpty()) return
         val db = writableDatabase
@@ -67,6 +97,11 @@ class GpsStore(context: Context) : SQLiteOpenHelper(context, "str_gps.db", null,
     fun count(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM gps_points", null).use {
         if (it.moveToFirst()) it.getInt(0) else 0
     }
+
+    fun rejectedCount(routeId: String): Int = readableDatabase.rawQuery(
+        "SELECT COUNT(*) FROM gps_points WHERE route_id = ? AND synced = -1",
+        arrayOf(routeId)
+    ).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
     fun pendingCount(routeId: String): Int = readableDatabase.rawQuery(
         "SELECT COUNT(*) FROM gps_points WHERE route_id = ? AND synced = 0",
