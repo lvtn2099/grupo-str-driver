@@ -44,7 +44,10 @@ data class GpsSession(
             val url = try { URL(endpoint) } catch (_: Exception) { return null }
             val hostname = url.host.lowercase()
             if (url.protocol != "https" || url.userInfo != null || url.port != -1) return null
-            if (hostname != "app.base44.com" && hostname != "base44.app" &&
+            // Custom-domain municipal app and Base44's native API endpoints are
+            // both valid; the route token is still checked by the backend.
+            if (hostname != "cdguzman.grupostr.com.mx" &&
+                hostname != "app.base44.com" && hostname != "base44.app" &&
                 !hostname.endsWith(".base44.app") && !hostname.endsWith(".base44.com")) return null
             if (!url.path.endsWith("/functions/gpsRouteBridge") &&
                 !url.path.endsWith("/gpsRouteBridge")) return null
