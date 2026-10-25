@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -189,6 +191,13 @@ class MainActivity : Activity() {
         refreshStatus()
     }
 
+    private fun hasUsableInternet(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = manager.activeNetwork ?: return false
+        val caps = manager.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
     private fun refreshStatus() {
         if (handoffError != null) {
             if (handoffError == "GPS DETENIDO") {
@@ -224,7 +233,16 @@ class MainActivity : Activity() {
             now - health.lastServerSuccess < 90000
         val freshFix = health.lastGpsFix >= health.attemptAt - 30000 &&
             health.lastGpsFix > 0 && now - health.lastGpsFix < 150000
+        val offline = !hasUsableInternet()
         when {
+            health.serviceRunning && offline && freshFix -> {
+                showStatus("SIN INTERNET · GPS GRABANDO",
+                    "Android sigue registrando ubicaciones en este teléfono. Los puntos se sincronizarán al volver la conexión. Consulta los pendientes debajo.", false)
+            }
+            health.serviceRunning && offline -> {
+                showStatus("SIN INTERNET · ESPERANDO SEÑAL GPS",
+                    "El servicio nativo está iniciado. Los puntos válidos se guardarán localmente; revisa permisos y señal GPS.", false)
+            }
             health.lastError != null && health.lastErrorAt > health.lastServerSuccess &&
                 health.lastErrorAt >= health.attemptAt -> {
                 showStatus("ERROR DE CONEXIÓN GPS",

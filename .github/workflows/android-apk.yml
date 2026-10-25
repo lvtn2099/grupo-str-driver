@@ -82,14 +82,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp android/app/build/outputs/apk/debug/app-debug.apk GrupoSTR-GPS-Nativo-v0.3.1.apk
-          gh release view gps-v0.3.1 >/dev/null 2>&1 && {
-            gh release upload gps-v0.3.1 GrupoSTR-GPS-Nativo-v0.3.1.apk --clobber
+          cp android/app/build/outputs/apk/debug/app-debug.apk GrupoSTR-GPS-Nativo-v0.3.2.apk
+          gh release view gps-v0.3.2 >/dev/null 2>&1 && {
+            gh release upload gps-v0.3.2 GrupoSTR-GPS-Nativo-v0.3.2.apk --clobber
           } || {
-            gh release create gps-v0.3.1 GrupoSTR-GPS-Nativo-v0.3.1.apk \
+            gh release create gps-v0.3.2 GrupoSTR-GPS-Nativo-v0.3.2.apk \
               --target "$GITHUB_SHA" \
-              --title "Grupo STR GPS Nativo v0.3.1 — Android test APK" \
+              --title "Grupo STR GPS Nativo v0.3.2 — Android test APK" \
               --notes "Android GPS companion for Grupo STR Base44. Debug-signed test build, not a production release. On existing installations, preserve pending GPS data before uninstalling." \
               --prerelease
           }
-          echo "APK direct download: https://github.com/${GITHUB_REPOSITORY}/releases/download/gps-v0.3.1/GrupoSTR-GPS-Nativo-v0.3.1.apk" >> "$GITHUB_STEP_SUMMARY"
+          echo "APK direct download: https://github.com/${GITHUB_REPOSITORY}/releases/download/gps-v0.3.2/GrupoSTR-GPS-Nativo-v0.3.2.apk" >> "$GITHUB_STEP_SUMMARY"
